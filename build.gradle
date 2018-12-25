@@ -1,0 +1,39 @@
+apply plugin: 'java'
+apply plugin: 'maven'
+
+group = 'net.arksea.zipkin'
+version = '1.0.0-SNAPSHOT'
+sourceCompatibility = 1.8
+
+repositories {
+    maven { url "http://172.17.149.8:8081/nexus/content/groups/public/" }
+    maven { url "http://repo.maven.apache.org/maven2" }
+}
+
+dependencies {
+    compile 'com.google.protobuf:protobuf-java:3.5.1'
+    compile 'io.zipkin.reporter2:zipkin-reporter:2.7.13'
+    compile 'io.zipkin.reporter2:zipkin-sender-okhttp3:2.7.13'
+    compile 'com.typesafe.akka:akka-actor_2.12:2.5.11'
+}
+
+//IDE中运行与调试的配置
+def runMainClass = 'net.arksea.zipkin.akka.demo.DemoApplication'
+
+//配置在IDE中运行及调试时的参数
+task run(type: JavaExec, dependsOn: 'classes') {
+    classpath = sourceSets.test.runtimeClasspath + sourceSets.main.runtimeClasspath
+    main = runMainClass
+    standardInput = System.in
+}
+
+uploadArchives {
+    repositories.mavenDeployer {
+        repository(url: "http://172.17.149.8:8081/nexus/content/repositories/releases") {
+            authentication(userName: "admin", password: "admin123")
+        }
+        snapshotRepository(url: "http://172.17.149.8:8081/nexus/content/repositories/snapshots") {
+            authentication(userName: "admin", password: "admin123")
+        }
+    }
+}.dependsOn(assemble)
