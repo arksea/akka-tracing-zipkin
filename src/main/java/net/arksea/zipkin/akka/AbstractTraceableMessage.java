@@ -1,6 +1,9 @@
 package net.arksea.zipkin.akka;
 
+import zipkin2.Endpoint;
 import zipkin2.Span;
+
+import java.util.UUID;
 
 /**
  *

@@ -9,6 +9,7 @@ import zipkin2.reporter.okhttp3.OkHttpSender;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
 import java.util.Properties;
 
 /**
@@ -58,11 +59,37 @@ public class ActorTracingFactory {
     }
 
     public static IActorTracing create(ActorRef actor) {
+        return create(actor.path().name());
+    }
+
+    public static IActorTracing create(ActorRef actor, int port) {
+        return create(actor.path().name(), port);
+    }
+
+    public static IActorTracing create(ActorRef actor, String host, int port) {
+        return create(actor.path().name(), host, port);
+    }
+
+    public static IActorTracing create(String serviceName) {
+        return create(serviceName, 0);
+    }
+
+    public static IActorTracing create(String serviceName, int serverBindPort) {
+        try {
+            InetAddress addr = InetAddress.getLocalHost();
+            final String host = addr.getHostAddress();
+            return create(serviceName, host, serverBindPort);
+        } catch (Exception ex) {
+            return create(serviceName, "", serverBindPort);
+        }
+    }
+
+    public static IActorTracing create(String serviceName, String host, int port) {
         Reporter<Span> r = getReporter();
         if (r == Reporter.NOOP) {
             return IActorTracing.NOOP;
         } else {
-            return new ZipkinTracing(getReporter(), actor, timer);
+            return new ZipkinTracing(getReporter(), serviceName, host, port, timer);
         }
     }
 }

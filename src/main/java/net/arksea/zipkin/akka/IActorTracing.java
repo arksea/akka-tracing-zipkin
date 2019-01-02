@@ -4,6 +4,7 @@ import akka.actor.ActorContext;
 import akka.actor.ActorRef;
 import akka.actor.ActorSelection;
 import akka.actor.Cancellable;
+import akka.japi.pf.FI;
 import akka.japi.pf.ReceiveBuilder;
 import akka.pattern.Patterns;
 import scala.concurrent.Future;
@@ -29,11 +30,11 @@ public interface IActorTracing {
         target.tell(message, sender);
     }
 
-    default Future ask(ActorRef receiver, Object message, ActorRef sender, long timeout) {
+    default Future<Object> ask(ActorRef receiver, Object message, String askerName, long timeout) {
         return Patterns.ask(receiver, message, timeout);
     }
 
-    default Future ask(ActorSelection receiver, Object message, ActorRef sender, long timeout) {
+    default Future<Object> ask(ActorSelection receiver, Object message, String askerName, long timeout) {
         return Patterns.ask(receiver, message, timeout);
     }
 
@@ -45,4 +46,6 @@ public interface IActorTracing {
     }
     default void putTag(String key, String value) {}
     default void addAnnotation(String value) {}
+    default <T> void trace(T t, FI.UnitApply<T> unitApply) throws Exception  {}
+    default <T> void fillTracingSpan(T t) {}
 }

@@ -8,10 +8,9 @@ import scala.concurrent.Future;
 import scala.concurrent.duration.Duration;
 import zipkin2.Endpoint;
 import zipkin2.Span;
-import zipkin2.codec.SpanBytesDecoder;
-import zipkin2.codec.SpanBytesEncoder;
 import zipkin2.reporter.Reporter;
 
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -21,22 +20,22 @@ import java.util.concurrent.TimeUnit;
  */
 public class ZipkinTracing implements IActorTracing {
     private final Reporter<Span> reporter;
-    private final ActorRef actor;
+    private final String serviceName;
     private final Timer timer;
     private Span.Builder currentSpanBuilder;
-    private SpanBytesEncoder encoder = SpanBytesEncoder.PROTO3;
-    private SpanBytesDecoder decoder = SpanBytesDecoder.PROTO3;
+    private final String host;
+    private final int port;
 
-    ZipkinTracing(Reporter<Span> reporter, ActorRef actor, Timer timer) {
+    ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port, Timer timer) {
         this.reporter = reporter;
-        this.actor = actor;
+        this.serviceName = serviceName;
+        this.host = host;
+        this.port = port;
         this.timer = timer;
     }
 
-    ZipkinTracing(Reporter<Span> reporter, ActorRef actor) {
-        this.reporter = reporter;
-        this.actor = actor;
-        this.timer = new TimerImpl();
+    ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port) {
+        this(reporter, serviceName, host, port, new TimerImpl());
     }
 
     @Override
@@ -83,156 +82,118 @@ public class ZipkinTracing implements IActorTracing {
             new Runnable() {
                 @Override
                 public void run() {
-                    ITraceableMessage tm = ITraceableMessage.trans(message);
-                    if (tm != null) {
-                        Span tellSpan = makeTellSpan("scheduleOnce", message, receiver, sender, currentSpan);
-                        tm.setTracingSpan(tellSpan);
-                        reporter.report(tellSpan);
-                    }
-                    receiver.tell(message, sender);
+                    Span span = makeTellSpan(message, sender.path().name(), currentSpan);
+                    Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+                    receiver.tell(filledMsg, sender);
                 }
             }, context.dispatcher());
     }
 
     @Override
     public void tell(ActorRef receiver, Object message, ActorRef sender) {
-        ITraceableMessage tm = ITraceableMessage.trans(message);
-        if (tm != null) {
-            Span tellSpan = makeTellSpan("send", message, receiver, sender, getCurrentSpan());
-            tm.setTracingSpan(tellSpan);
-            reporter.report(tellSpan);
-        }
-        receiver.tell(message, sender);
+        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+        receiver.tell(filledMsg, sender);
     }
 
     @Override
     public void tell(ActorSelection receiver, Object message, ActorRef sender)  {
-        ITraceableMessage tm = ITraceableMessage.trans(message);
-        if (tm != null) {
-            Span tellSpan = makeTellSpan("send", message, receiver, sender, getCurrentSpan());
-            tm.setTracingSpan(tellSpan);
-            reporter.report(tellSpan);
-        }
-        receiver.tell(message, sender);
+        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+        receiver.tell(filledMsg, sender);
     }
 
     @Override
     public Future ask(ActorRef receiver, Object message, ActorRef sender, long timeout) {
-        ITraceableMessage tm = ITraceableMessage.trans(message);
-        if (tm != null) {
-            Span tellSpan = makeTellSpan("ask", message, receiver, sender, getCurrentSpan());
-            tm.setTracingSpan(tellSpan);
-            reporter.report(tellSpan);
-        }
-        return Patterns.ask(receiver, message, timeout);
+        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+        return Patterns.ask(receiver, filledMsg, timeout);
     }
 
     @Override
     public Future ask(ActorSelection receiver, Object message, ActorRef sender, long timeout) {
-        ITraceableMessage tm = ITraceableMessage.trans(message);
-        if (tm != null) {
-            Span tellSpan = makeTellSpan("ask", message, receiver, sender, getCurrentSpan());
-            tm.setTracingSpan(tellSpan);
-            reporter.report(tellSpan);
-        }
-        return Patterns.ask(receiver, message, timeout);
+        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+        return Patterns.ask(receiver, filledMsg, timeout);
     }
 
     public <T> void apply(T t, FI.UnitApply<T> unitApply) throws Exception {
-        ITraceableMessage tm = ITraceableMessage.trans(t);
-        if (tm != null) {
-            try {
-                long start = timer.nowMicro();
-                long applySpanId = makeSpanId();
-                Endpoint endpoint = makeEndpoint(actor);
-                Span tracingSpan = tm.getTracingSpan();
-                Span msgSpan;
-                if (tracingSpan == null) {
-                    msgSpan = Span.newBuilder()
+
+        try {
+            long start = timer.nowMicro();
+            Optional<Span> op = TracingUtils.getTracingSpan(t);
+            if (op == null) {
+                unitApply.apply(t);
+            } else {
+                Endpoint endpoint = makeEndpoint(this.serviceName);
+                String name;
+                if (t instanceof ITraceableMessage) {
+                    name = ((ITraceableMessage)t).getTracingName();
+                } else {
+                    name = t.getClass().getSimpleName();
+                }
+                Span tracingSpan;
+                if (op.isPresent()) {
+                    tracingSpan = op.get();
+                } else {
+                    tracingSpan = Span.newBuilder()
                         .traceId(makeTracingId(t))
                         .id(makeSpanId())
-                        .name("received("+t.getClass().getSimpleName()+")")
+                        .name(name)
                         .kind(Span.Kind.PRODUCER)
                         .timestamp(start - 100)
-                        .localEndpoint(endpoint)
+                        .remoteEndpoint(endpoint)
                         .build();
-                    tm.setTracingSpan(msgSpan);
-                    reporter.report(msgSpan);
-                } else {
-                    msgSpan = tracingSpan;
+                    reporter.report(tracingSpan);
                 }
-                long duration = start - msgSpan.timestamp();
-                Span rcvSpan = Span.newBuilder()
-                    .merge(msgSpan)
-                    .duration(duration)
-                    .build();
-                reporter.report(rcvSpan);
-
                 Span.Builder applySpan = Span.newBuilder()
-                    .merge(msgSpan)
-                    .id(applySpanId)
-                    .parentId(msgSpan.id())
-                    .name("handle("+t.getClass().getSimpleName()+")")
+                    .traceId(tracingSpan.traceId())
+                    .id(tracingSpan.id())
+                    .name(name)
                     .kind(Span.Kind.CONSUMER)
+                    .timestamp(start)
                     .localEndpoint(endpoint)
-                    .timestamp(start);
-                reporter.report(applySpan.build());
+                    .remoteEndpoint(null);
 
                 setCurrentSpan(applySpan);
                 unitApply.apply(t);
 
                 long end = timer.nowMicro();
-                Span applyEndSpan = currentSpanBuilder
-                    .duration(end - start)
+                Span applyEndSpan = applySpan
+                    .duration(end - tracingSpan.timestamp())
                     .build();
                 reporter.report(applyEndSpan);
-            } finally {
-                clearCurrentSpan();
             }
-        } else {
-            unitApply.apply(t);
+        } finally {
+            clearCurrentSpan();
         }
     }
 
-    protected Span makeTellSpan(String name, Object tm, ActorRef receiver, ActorRef sender, Span currentSpan) {
-        long tellSpanId = makeSpanId();
+    protected Span makeTellSpan(Object tm, String sendServiceName, Span currentSpan) {
         Span.Builder sb = Span.newBuilder();
-        if (currentSpan != null) {
-            sb.merge(currentSpan);
-            sb.parentId(currentSpan.id());
-        } else {
+        if (currentSpan == null) {
             sb.traceId(makeTracingId(tm));
-            sb.id(makeSpanId());
-        }
-        Endpoint remoteEp = makeEndpoint(receiver);
-        Endpoint localEp = makeEndpoint(sender);
-        sb.id(tellSpanId)
-            .name(name+"("+tm.getClass().getSimpleName()+")")
-            .timestamp(timer.nowMicro())
-            .remoteEndpoint(remoteEp)
-            .localEndpoint(localEp)
-            .kind(Span.Kind.PRODUCER);
-        return sb.build();
-    }
-
-    protected Span makeTellSpan(String name, Object tm, ActorSelection receiver, ActorRef sender, Span currentSpan) {
-        long tellSpanId = makeSpanId();
-        Span.Builder sb = Span.newBuilder();
-        if (currentSpan != null) {
-            sb.merge(currentSpan);
-            sb.parentId(currentSpan.id());
         } else {
-            sb.traceId(makeTracingId(tm));
-            sb.id(makeSpanId());
+            sb.traceId(currentSpan.traceId());
+            sb.parentId(currentSpan.id());
         }
-        Endpoint remoteEp = makeEndpoint(receiver);
-        Endpoint localEp = makeEndpoint(sender);
-        sb.id(tellSpanId)
-            .name(name+"("+tm.getClass().getSimpleName()+")")
-            .timestamp(timer.nowMicro())
-            .remoteEndpoint(remoteEp)
-            .localEndpoint(localEp)
+        long now = timer.nowMicro();
+        Endpoint endpoint = makeEndpoint(sendServiceName);
+        String name;
+        if (tm instanceof ITraceableMessage) {
+            name = ((ITraceableMessage)tm).getTracingName();
+        } else {
+            name = tm.getClass().getSimpleName();
+        }
+        sb.id(makeSpanId())
+            .name(name)
+            .timestamp(now)
+            .addAnnotation(now, "sendMessage")
+            .remoteEndpoint(endpoint)
+            .localEndpoint(null)
             .kind(Span.Kind.PRODUCER);
+        reporter.report(sb.build());
+        sb.clearAnnotations();
         return sb.build();
     }
 
@@ -244,29 +205,16 @@ public class ZipkinTracing implements IActorTracing {
         return UUID.randomUUID().toString().replace("-","");
     }
 
-    public Endpoint makeEndpoint(ActorRef actor) {
+    private Endpoint makeEndpoint(String name) {
         Endpoint.Builder eb = Endpoint.newBuilder();
-        if (actor == null) {
-            eb.serviceName("ActorRef.noSender");
-        } else {
-            ActorPath path = actor.path();
-            Address addr = path.address();
-            eb.serviceName(path.name());
-            if (addr.host().nonEmpty()) {
-                String host = addr.host().get();
-                int port = Integer.parseInt(addr.port().get().toString());
-                eb.ip(host).port(port);
-            }
+        if (!"".equals(name)) {
+            eb.serviceName(name);
         }
-        return eb.build();
-    }
-
-    public Endpoint makeEndpoint(ActorSelection actor) {
-        Endpoint.Builder eb = Endpoint.newBuilder();
-        if (actor == null) {
-            eb.serviceName("ActorRef.noSender");
-        } else {
-            eb.serviceName(actor.pathString());
+        if (!"".equals(this.host)) {
+            eb.ip(this.host);
+        }
+        if (port > 0) {
+            eb.port(this.port);
         }
         return eb.build();
     }
