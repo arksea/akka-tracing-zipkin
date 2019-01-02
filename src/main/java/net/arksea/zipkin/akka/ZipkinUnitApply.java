@@ -17,6 +17,6 @@ public class ZipkinUnitApply<T> implements FI.UnitApply<T> {
 
     @Override
     public void apply(T t) throws Exception {
-        tracing.apply(t, unitApply);
+        tracing.trace(t, unitApply);
     }
 }

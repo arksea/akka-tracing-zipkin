@@ -104,26 +104,48 @@ public class ZipkinTracing implements IActorTracing {
     }
 
     @Override
-    public Future ask(ActorRef receiver, Object message, ActorRef sender, long timeout) {
-        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+    public Future ask(ActorRef receiver, Object message, String askerName, long timeout) {
+        Span span = makeTellSpan(message, askerName, getCurrentSpan());
         Object filledMsg = TracingUtils.fillTracingSpan(message, span);
         return Patterns.ask(receiver, filledMsg, timeout);
     }
 
     @Override
-    public Future ask(ActorSelection receiver, Object message, ActorRef sender, long timeout) {
-        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+    public Future ask(ActorSelection receiver, Object message, String askerName, long timeout) {
+        Span span = makeTellSpan(message, askerName, getCurrentSpan());
         Object filledMsg = TracingUtils.fillTracingSpan(message, span);
         return Patterns.ask(receiver, filledMsg, timeout);
     }
 
-    public <T> void apply(T t, FI.UnitApply<T> unitApply) throws Exception {
+    @Override
+    public <T> void fillTracingSpan(T t) {
+        String name;
+        if (t instanceof ITraceableMessage) {
+            name = ((ITraceableMessage)t).getTracingName();
+        } else {
+            name = t.getClass().getSimpleName();
+        }
+        Endpoint endpoint = makeEndpoint(this.serviceName);
+        Span tracingSpan = Span.newBuilder()
+            .traceId(makeTracingId(t))
+            .id(makeSpanId())
+            .name(name)
+            .kind(Span.Kind.PRODUCER)
+            .timestamp(timer.nowMicro())
+            .remoteEndpoint(endpoint)
+            .build();
+        TracingUtils.fillTracingSpan(t, tracingSpan);
+    }
 
+    @Override
+    public <T> void trace(T t, FI.UnitApply<T> unitApply) throws Exception {
         try {
             long start = timer.nowMicro();
             Optional<Span> op = TracingUtils.getTracingSpan(t);
             if (op == null) {
-                unitApply.apply(t);
+                if (unitApply != null) {
+                    unitApply.apply(t);
+                }
             } else {
                 Endpoint endpoint = makeEndpoint(this.serviceName);
                 String name;
@@ -141,7 +163,7 @@ public class ZipkinTracing implements IActorTracing {
                         .id(makeSpanId())
                         .name(name)
                         .kind(Span.Kind.PRODUCER)
-                        .timestamp(start - 100)
+                        .timestamp(start)
                         .remoteEndpoint(endpoint)
                         .build();
                     reporter.report(tracingSpan);
@@ -156,11 +178,13 @@ public class ZipkinTracing implements IActorTracing {
                     .remoteEndpoint(null);
 
                 setCurrentSpan(applySpan);
-                unitApply.apply(t);
+                if (unitApply != null) {
+                    unitApply.apply(t);
+                }
 
                 long end = timer.nowMicro();
                 Span applyEndSpan = applySpan
-                    .duration(end - tracingSpan.timestamp())
+                    .duration(end - start)
                     .build();
                 reporter.report(applyEndSpan);
             }
