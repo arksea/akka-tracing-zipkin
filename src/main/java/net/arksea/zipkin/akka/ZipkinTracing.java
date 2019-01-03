@@ -224,10 +224,4 @@ public class ZipkinTracing implements IActorTracing {
     public long tracingTimestamp() {
         return timer.nowMicro();
     }
-
-    @Override
-    public boolean enabled() {
-        return true;
-    }
-
 }

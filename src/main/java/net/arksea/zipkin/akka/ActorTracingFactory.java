@@ -19,8 +19,9 @@ import java.util.Properties;
 public class ActorTracingFactory {
     private static volatile Reporter<Span> reporter;
     private static Timer timer;
+    private static long samplingMod = -1;
 
-    private static Reporter<Span> getReporter() {
+    public static Reporter<Span> getReporter() {
         if (reporter == null) {
             synchronized (ActorTracingFactory.class) {
                 if (reporter == null) {
@@ -48,6 +49,8 @@ public class ActorTracingFactory {
         if ("true".equals(enabled)) {
             String host = props.getProperty("zipkin.host");
             String port = props.getProperty("zipkin.port");
+            String modStr = props.getProperty("samplingMod");
+            samplingMod = Long.parseLong(modStr);
             OkHttpSender sender = OkHttpSender.newBuilder()
                 .endpoint("http://" + host + ":" + port + "/api/v2/spans")
                 .encoding(Encoding.PROTO3).build();
@@ -89,7 +92,8 @@ public class ActorTracingFactory {
         if (r == Reporter.NOOP) {
             return IActorTracing.NOOP;
         } else {
-            return new ZipkinTracing(getReporter(), serviceName, host, port, timer);
+            Reporter<Span> reproter = new SamplingReporter(samplingMod, getReporter());
+            return new ZipkinTracing(reproter, serviceName, host, port, timer);
         }
     }
 }

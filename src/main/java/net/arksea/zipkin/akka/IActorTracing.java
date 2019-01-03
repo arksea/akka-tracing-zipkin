@@ -72,9 +72,4 @@ public interface IActorTracing {
     default long tracingTimestamp() {
         return System.currentTimeMillis() * 1000L;
     }
-
-    default boolean enabled() {
-        return false;
-    }
-
 }
