@@ -35,19 +35,10 @@ public class Actor1 extends AbstractActor {
     }
 
     private void handleMessage1(Message1 msg) throws InterruptedException {
-        //tracing.putTag("tag1", "aaaaaaaaaaaaa");
-        //tracing.putTag("tag2", "bbbbbbbbbbbb");
-        //tracing.addAnnotation("111111111");
-        //Thread.sleep(1);
-        //tracing.addAnnotation("2222222");
-        //Thread.sleep(1);
         tracing.tell(actor2, new Message2("hello, I'm Actor1"), self());
         tracing.tell(actor2, new Message2("hello, I'm Actor1"), self());
-//        Message2 msgDelay = new Message2("hello, this is delay message");
-//        tracing.scheduleOnce(context(), 1, actor2, msgDelay, self());
     }
 
     private void handleMessage3(Message3 msg) throws InterruptedException {
-
     }
 }

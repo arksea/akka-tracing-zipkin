@@ -25,7 +25,7 @@ public class ActorTracingFactory {
             synchronized (ActorTracingFactory.class) {
                 if (reporter == null) {
                     try {
-                        timer = new TimerImpl();
+                        timer = new TimerImplOffset();
                         reporter = createReporter();
                     } catch (Exception ex) {
                         ex.printStackTrace();

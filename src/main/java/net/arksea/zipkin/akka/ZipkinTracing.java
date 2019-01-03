@@ -11,7 +11,6 @@ import zipkin2.Span;
 import zipkin2.reporter.Reporter;
 
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -35,7 +34,7 @@ public class ZipkinTracing implements IActorTracing {
     }
 
     ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port) {
-        this(reporter, serviceName, host, port, new TimerImpl());
+        this(reporter, serviceName, host, port, new TimerImplOffset());
     }
 
     @Override
@@ -118,26 +117,6 @@ public class ZipkinTracing implements IActorTracing {
     }
 
     @Override
-    public <T> void fillTracingSpan(T t) {
-        String name;
-        if (t instanceof ITraceableMessage) {
-            name = ((ITraceableMessage)t).getTracingName();
-        } else {
-            name = t.getClass().getSimpleName();
-        }
-        Endpoint endpoint = makeEndpoint(this.serviceName);
-        Span tracingSpan = Span.newBuilder()
-            .traceId(makeTracingId(t))
-            .id(makeSpanId())
-            .name(name)
-            .kind(Span.Kind.PRODUCER)
-            .timestamp(timer.nowMicro())
-            .remoteEndpoint(endpoint)
-            .build();
-        TracingUtils.fillTracingSpan(t, tracingSpan);
-    }
-
-    @Override
     public <T> void trace(T t, FI.UnitApply<T> unitApply) throws Exception {
         try {
             long start = timer.nowMicro();
@@ -148,22 +127,21 @@ public class ZipkinTracing implements IActorTracing {
                 }
             } else {
                 Endpoint endpoint = makeEndpoint(this.serviceName);
-                String name;
-                if (t instanceof ITraceableMessage) {
-                    name = ((ITraceableMessage)t).getTracingName();
-                } else {
-                    name = t.getClass().getSimpleName();
-                }
                 Span tracingSpan;
                 if (op.isPresent()) {
                     tracingSpan = op.get();
                 } else {
+                    String name;
+                    if (t instanceof ITraceableMessage) {
+                        name = ((ITraceableMessage)t).getTracingName();
+                    } else {
+                        name = t.getClass().getSimpleName();
+                    }
                     tracingSpan = Span.newBuilder()
                         .traceId(makeTracingId(t))
                         .id(makeSpanId())
                         .name(name)
-                        .kind(Span.Kind.PRODUCER)
-                        .timestamp(start)
+                        .kind(Span.Kind.CONSUMER)
                         .remoteEndpoint(endpoint)
                         .build();
                     reporter.report(tracingSpan);
@@ -171,11 +149,7 @@ public class ZipkinTracing implements IActorTracing {
                 Span.Builder applySpan = Span.newBuilder()
                     .traceId(tracingSpan.traceId())
                     .id(tracingSpan.id())
-                    .name(name)
-                    .kind(Span.Kind.CONSUMER)
-                    .timestamp(start)
-                    .localEndpoint(endpoint)
-                    .remoteEndpoint(null);
+                    .name(tracingSpan.name());  //id不变则name不变
 
                 setCurrentSpan(applySpan);
                 if (unitApply != null) {
@@ -183,8 +157,13 @@ public class ZipkinTracing implements IActorTracing {
                 }
 
                 long end = timer.nowMicro();
+                long duration = end == start ? 1 : end - start;
                 Span applyEndSpan = applySpan
-                    .duration(end - start)
+                    .kind(Span.Kind.CONSUMER)
+                    .duration(duration)
+                    .timestamp(start)
+                    .localEndpoint(endpoint)
+                    .remoteEndpoint(null)
                     .build();
                 reporter.report(applyEndSpan);
             }
@@ -203,33 +182,31 @@ public class ZipkinTracing implements IActorTracing {
         }
         long now = timer.nowMicro();
         Endpoint endpoint = makeEndpoint(sendServiceName);
+        //tell消息span的名字优先继承已填好的span的名字
+        Optional<Span> op = TracingUtils.getTracingSpan(tm);
         String name;
-        if (tm instanceof ITraceableMessage) {
+        if (op != null && op.isPresent() && op.get().name() != null) {
+            name = op.get().name();
+        } else if (tm instanceof ITraceableMessage) {
             name = ((ITraceableMessage)tm).getTracingName();
         } else {
             name = tm.getClass().getSimpleName();
         }
+
         sb.id(makeSpanId())
             .name(name)
-            .timestamp(now)
+            //.timestamp(now)  //只在span最后一个report设置timestamp和duration,否则ZipkinUI显示不正常
             .addAnnotation(now, "sendMessage")
             .remoteEndpoint(endpoint)
             .localEndpoint(null)
-            .kind(Span.Kind.PRODUCER);
+            .kind(Span.Kind.CONSUMER);
         reporter.report(sb.build());
         sb.clearAnnotations();
         return sb.build();
     }
 
-    public long makeSpanId() {
-        return UUID.randomUUID().getMostSignificantBits();
-    }
-
-    public <T> String makeTracingId(T t) {;
-        return UUID.randomUUID().toString().replace("-","");
-    }
-
-    private Endpoint makeEndpoint(String name) {
+    @Override
+    public Endpoint makeEndpoint(String name) {
         Endpoint.Builder eb = Endpoint.newBuilder();
         if (!"".equals(name)) {
             eb.serviceName(name);
@@ -242,4 +219,15 @@ public class ZipkinTracing implements IActorTracing {
         }
         return eb.build();
     }
+
+    @Override
+    public long tracingTimestamp() {
+        return timer.nowMicro();
+    }
+
+    @Override
+    public boolean enabled() {
+        return true;
+    }
+
 }

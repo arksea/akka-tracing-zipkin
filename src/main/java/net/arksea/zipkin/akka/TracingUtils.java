@@ -37,7 +37,7 @@ public class TracingUtils {
         }
     }
 
-    public static Object fillTracingSpan(Object message, Span tracingSpan) {
+    public static <T> T fillTracingSpan(T message, Span tracingSpan) {
         if (message instanceof Message) {
             Message msg = (Message) message;
             Descriptors.Descriptor d = msg.getDescriptorForType();
@@ -46,7 +46,7 @@ public class TracingUtils {
                 byte[] bytes = encoder.encode(tracingSpan);
                 ByteString bs = ByteString.copyFrom(bytes);
                 Message newMsg = msg.toBuilder().setField(field, bs).build();
-                return newMsg;
+                return (T)newMsg;
             } else {
                 return message;
             }

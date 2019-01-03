@@ -28,7 +28,7 @@ public class Actor2 extends AbstractActor {
             .match(Message2.class, this::handleMessage2)
             .build();
     }
-    private void handleMessage2(Message2 msg) {
+    private void handleMessage2(Message2 msg) throws InterruptedException {
         tracing.tell(sender(), new Message3("hello, I'm Actor2"), self());
     }
 }

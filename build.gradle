@@ -5,6 +5,8 @@ group = 'net.arksea.zipkin'
 version = '1.0.0-SNAPSHOT'
 sourceCompatibility = 1.8
 
+[compileJava, compileTestJava]*.options*.encoding = 'UTF-8'
+
 repositories {
     maven { url "http://172.17.149.8:8081/nexus/content/groups/public/" }
     maven { url "http://repo.maven.apache.org/maven2" }

@@ -9,8 +9,9 @@ import akka.japi.pf.ReceiveBuilder;
 import akka.pattern.Patterns;
 import scala.concurrent.Future;
 import scala.concurrent.duration.Duration;
-import zipkin2.Span;
+import zipkin2.Endpoint;
 
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -47,5 +48,33 @@ public interface IActorTracing {
     default void putTag(String key, String value) {}
     default void addAnnotation(String value) {}
     default <T> void trace(T t, FI.UnitApply<T> unitApply) throws Exception  {}
-    default <T> void fillTracingSpan(T t) {}
+
+    default long makeSpanId() {
+        return UUID.randomUUID().getMostSignificantBits();
+    }
+
+    default <T> String makeTracingId(T t) {;
+        return UUID.randomUUID().toString().replace("-","");
+    }
+
+    default Endpoint makeEndpoint(String name) {
+        Endpoint.Builder eb = Endpoint.newBuilder();
+        if (!"".equals(name)) {
+            eb.serviceName(name);
+        }
+        return eb.build();
+    }
+
+    /**
+     * 微秒为单位的时间戳（microseconds）
+     * @return
+     */
+    default long tracingTimestamp() {
+        return System.currentTimeMillis() * 1000L;
+    }
+
+    default boolean enabled() {
+        return false;
+    }
+
 }
