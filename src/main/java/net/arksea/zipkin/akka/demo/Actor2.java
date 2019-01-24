@@ -5,13 +5,14 @@ import akka.actor.Props;
 import akka.japi.Creator;
 import net.arksea.zipkin.akka.ActorTracingFactory;
 import net.arksea.zipkin.akka.IActorTracing;
+import net.arksea.zipkin.akka.TracingConfigImpl;
 
 /**
  *
  * Created by xiaohaixing on 2018/12/20.
  */
 public class Actor2 extends AbstractActor {
-    private IActorTracing tracing = ActorTracingFactory.create(self());
+    private IActorTracing tracing = ActorTracingFactory.create(new TracingConfigImpl(), "Actor2", "localhost", 0);
 
     public static Props props() {
         return Props.create(new Creator<Actor2>() {

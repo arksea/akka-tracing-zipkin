@@ -11,6 +11,7 @@ import zipkin2.Span;
 import zipkin2.reporter.Reporter;
 
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -24,17 +25,19 @@ public class ZipkinTracing implements IActorTracing {
     private Span.Builder currentSpanBuilder;
     private final String host;
     private final int port;
+    private final ITracingConfig config;
 
-    ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port, Timer timer) {
+    ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port, ITracingConfig config, Timer timer) {
         this.reporter = reporter;
         this.serviceName = serviceName;
         this.host = host;
         this.port = port;
         this.timer = timer;
+        this.config = config;
     }
 
-    ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port) {
-        this(reporter, serviceName, host, port, new TimerImplOffset());
+    ZipkinTracing(Reporter<Span> reporter, String serviceName, String host, int port, ITracingConfig config) {
+        this(reporter, serviceName, host, port, config, new TimerImplOffset());
     }
 
     @Override
@@ -51,73 +54,111 @@ public class ZipkinTracing implements IActorTracing {
     }
 
     protected Span getCurrentSpan() {
-        if (currentSpanBuilder == null) {
+        Span.Builder sb = currentSpanBuilder;
+        if (sb == null) {
             return null;
         } else {
-            return Span.newBuilder()
-                .merge(currentSpanBuilder.build())
-                .clearAnnotations()
-                .clearTags()
-                .build();
+            return sb.clone()
+                     .clearAnnotations()
+                     .clearTags()
+                     .build();
         }
     }
 
     @Override
     public void putTag(String key, String value) {
-        currentSpanBuilder.putTag(key, value);
+        if (config.isEnabled()) {
+            Span.Builder sb = currentSpanBuilder;
+            if (sb != null) {
+                sb.putTag(key, value);
+            }
+        }
     }
 
     @Override
     public void addAnnotation(String value) {
-        currentSpanBuilder.addAnnotation(timer.nowMicro(), value);
+        if (config.isEnabled()) {
+            Span.Builder sb = currentSpanBuilder;
+            if (sb != null) {
+                sb.addAnnotation(timer.nowMicro(), value);
+            }
+        }
     }
 
     @Override
     public Cancellable scheduleOnce(ActorContext context, long delayMilliseconds ,
                                     ActorRef receiver, Object message, ActorRef sender) {
-        Span currentSpan = getCurrentSpan();
-        return context.system().scheduler().scheduleOnce(
-            Duration.create(delayMilliseconds, TimeUnit.MILLISECONDS),
-            new Runnable() {
-                @Override
-                public void run() {
-                    Span span = makeTellSpan(message, sender.path().name(), currentSpan);
-                    Object filledMsg = TracingUtils.fillTracingSpan(message, span);
-                    receiver.tell(filledMsg, sender);
-                }
-            }, context.dispatcher());
+        if (config.isEnabled()) {
+            Span currentSpan = getCurrentSpan();
+            return context.system().scheduler().scheduleOnce(
+                Duration.create(delayMilliseconds, TimeUnit.MILLISECONDS),
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        Span span = makeTellSpan(message, sender.path().name(), currentSpan);
+                        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+                        receiver.tell(filledMsg, sender);
+                    }
+                }, context.dispatcher());
+        } else {
+            return context.system().scheduler().scheduleOnce(
+                Duration.create(delayMilliseconds, TimeUnit.MILLISECONDS),
+                receiver,message,context.system().dispatcher(),sender);
+        }
     }
 
     @Override
     public void tell(ActorRef receiver, Object message, ActorRef sender) {
-        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
-        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
-        receiver.tell(filledMsg, sender);
+        if (config.isEnabled()) {
+            Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+            Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+            receiver.tell(filledMsg, sender);
+        } else {
+            receiver.tell(message, sender);
+        }
     }
 
     @Override
     public void tell(ActorSelection receiver, Object message, ActorRef sender)  {
-        Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
-        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
-        receiver.tell(filledMsg, sender);
+        if (config.isEnabled()) {
+            Span span = makeTellSpan(message, sender.path().name(), getCurrentSpan());
+            Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+            receiver.tell(filledMsg, sender);
+        } else {
+            receiver.tell(message, sender);
+        }
     }
 
     @Override
     public Future ask(ActorRef receiver, Object message, String askerName, long timeout) {
-        Span span = makeTellSpan(message, askerName, getCurrentSpan());
-        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
-        return Patterns.ask(receiver, filledMsg, timeout);
+        if (config.isEnabled()) {
+            Span span = makeTellSpan(message, askerName, getCurrentSpan());
+            Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+            return Patterns.ask(receiver, filledMsg, timeout);
+        } else {
+            return Patterns.ask(receiver, message, timeout);
+        }
     }
 
     @Override
     public Future ask(ActorSelection receiver, Object message, String askerName, long timeout) {
-        Span span = makeTellSpan(message, askerName, getCurrentSpan());
-        Object filledMsg = TracingUtils.fillTracingSpan(message, span);
-        return Patterns.ask(receiver, filledMsg, timeout);
+        if (config.isEnabled()) {
+            Span span = makeTellSpan(message, askerName, getCurrentSpan());
+            Object filledMsg = TracingUtils.fillTracingSpan(message, span);
+            return Patterns.ask(receiver, filledMsg, timeout);
+        } else {
+            return Patterns.ask(receiver, message, timeout);
+        }
     }
 
     @Override
     public <T> void trace(T t, FI.UnitApply<T> unitApply) throws Exception {
+        if (!config.isEnabled()) {
+            if (unitApply != null) {
+                unitApply.apply(t);
+            }
+            return;
+        }
         try {
             long start = timer.nowMicro();
             Optional<Span> op = TracingUtils.getTracingSpan(t);
@@ -223,5 +264,15 @@ public class ZipkinTracing implements IActorTracing {
     @Override
     public long tracingTimestamp() {
         return timer.nowMicro();
+    }
+
+    @Override
+    public <T> String makeTracingId(T t) {
+        return UUID.randomUUID().toString().replace("-","");
+    }
+
+    @Override
+    public long makeSpanId() {
+        return UUID.randomUUID().getMostSignificantBits();
     }
 }

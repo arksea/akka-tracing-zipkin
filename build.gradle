@@ -1,8 +1,8 @@
 apply plugin: 'java'
 apply plugin: 'maven'
 
-group = 'net.arksea.zipkin'
-version = '1.0.0-SNAPSHOT'
+group = 'net.arksea'
+version = '1.0.1-SNAPSHOT'
 sourceCompatibility = 1.8
 
 [compileJava, compileTestJava]*.options*.encoding = 'UTF-8'

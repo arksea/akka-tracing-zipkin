@@ -4,6 +4,7 @@ import akka.actor.*;
 import akka.japi.Creator;
 import net.arksea.zipkin.akka.ActorTracingFactory;
 import net.arksea.zipkin.akka.IActorTracing;
+import net.arksea.zipkin.akka.TracingConfigImpl;
 
 /**
  *
@@ -11,7 +12,7 @@ import net.arksea.zipkin.akka.IActorTracing;
  */
 public class Actor1 extends AbstractActor {
     private final ActorRef actor2;
-    private IActorTracing tracing = ActorTracingFactory.create(self());
+    private IActorTracing tracing = ActorTracingFactory.create(new TracingConfigImpl(), "Actor1", "localhost", 0);
 
     public Actor1(ActorRef actor2) {
         this.actor2 = actor2;

@@ -19,6 +19,7 @@ public class SamplingReporter implements Reporter<Span> {
     public void report(Span span) {
         String traceId = span.traceId();
         if (mod <= 0) {
+        } else if (mod == 1) {
             reporter.report(span);
         } else if (traceId.hashCode() % mod == 0) {
             reporter.report(span);
