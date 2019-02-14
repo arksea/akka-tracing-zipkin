@@ -5,7 +5,6 @@ import akka.actor.Props;
 import akka.japi.Creator;
 import net.arksea.zipkin.akka.ActorTracingFactory;
 import net.arksea.zipkin.akka.IActorTracing;
-import net.arksea.zipkin.akka.TracingConfigImpl;
 
 /**
  *

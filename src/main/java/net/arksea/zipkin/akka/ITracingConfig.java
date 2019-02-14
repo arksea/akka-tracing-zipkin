@@ -8,5 +8,5 @@ public interface ITracingConfig {
     boolean isEnabled();
     String getTracingServerHost();
     int getTracingServerPort();
-    int getSamplingMod();
+    boolean sample(String traceId);
 }

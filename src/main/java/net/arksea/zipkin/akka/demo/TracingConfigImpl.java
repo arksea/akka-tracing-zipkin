@@ -1,4 +1,6 @@
-package net.arksea.zipkin.akka;
+package net.arksea.zipkin.akka.demo;
+import net.arksea.zipkin.akka.ITracingConfig;
+
 import java.io.InputStream;
 import java.util.Properties;
 
@@ -49,7 +51,13 @@ public class TracingConfigImpl implements ITracingConfig {
     }
 
     @Override
-    public int getSamplingMod() {
-        return samplingMod;
+    public boolean sample(String traceId) {
+        if (samplingMod <= 0) {
+            return false;
+        } else if (traceId.hashCode() % samplingMod == 0) {
+            return true;
+        } else {
+            return false;
+        }
     }
 }

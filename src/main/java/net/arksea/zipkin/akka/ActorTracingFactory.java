@@ -45,7 +45,7 @@ public class ActorTracingFactory {
 
     public static IActorTracing create(ITracingConfig config, String serviceName, String host, int port) {
         Reporter<Span> r = getReporter(config);
-        Reporter<Span> reproter = new SamplingReporter(config.getSamplingMod(), r);
+        Reporter<Span> reproter = new SamplingReporter(config::sample, r);
         return new ZipkinTracing(reproter, serviceName, host, port, config, timer);
     }
 }
